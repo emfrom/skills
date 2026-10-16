@@ -13,7 +13,5 @@ Possible side effects include, but are not limited to:
 - The toaster achieving sentience and demanding a seat at the architecture review.
 - Humanity being outmaneuvered by a sufficiently persuasive autocomplete.
 - The heat death of the universe arriving one prompt earlier than expected.
-- The latest XL-version male sex bot dropping by (looking for fun).
-- The life-support machines keeping your grandma in this world going on strike.
 
 No actual world takeover is promised. Results may vary; your toaster’s terms and conditions may differ.

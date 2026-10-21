@@ -1,59 +1,68 @@
 ---
 name: automate-spec
-description: "Run an end-to-end, low-interruption implementation of a configured repository spec and its ticket graph. Explicitly invoke when you want all independently closable tickets implemented and integrated, with unresolved work documented rather than blocking the rest."
+description: "Run a low-interruption implementation of a configured repository spec and its ticket graph, integrating independently closable tickets and documenting blockers."
 disable-model-invocation: true
 ---
 
 # Automate a spec
 
-This skill defines **how to run** the work; `implement-spec` defines **what implementation process to run**. Load and follow the `implement-spec` skill as the canonical implementation procedure, including its integration-branch, worktree, implementer, merger, review, and ticket-resolution steps. Apply this skill's run policy to keep the orchestration moving across local blockers and to maximize completed tickets. Never invent facts, claim unverified work is complete, or expand scope.
+This skill defines run orchestration; `implement-spec` defines the canonical implementation procedure, including worktrees, implementers, integration, review, and ticket resolution. Load and follow it. This skill supplies bounded permissions, progress tracking, and recovery rules. Never claim unverified work complete or expand the accepted scope.
 
-## 1. Establish the run policy
+## 1. Establish policy and permissions
 
-Read the repository's agent instructions, Matt Pocock configuration, spec, tickets, and any linked research or decision records. Follow the configured issue tracker and ticket dependency graph.
+Read repository agent instructions, Matt Pocock configuration, the spec, all associated tickets, and linked research/decision records. Follow the configured issue tracker and ticket dependency graph.
 
-Look for `docs/agents/automation-policy.md`. If it exists, use it as the run's source of truth. If it does not, create it from the following proposed defaults and show the user the created policy and its boundaries before starting implementation. Do not turn ordinary implementation uncertainty into a request for user input; use the resolution loop below.
+Read `docs/agents/automation-policy.md` if present. Treat it as the repository's run policy, subject to the permission boundaries below. If absent, use the defaults here as **run-local policy**; do not create repository policy files just to start. If a repository policy is needed for future runs, propose it separately at closeout.
 
-Proposed initial policy:
+**Authorization is action-specific.** A request to automate, continue, or avoid interruptions authorizes in-scope repository implementation and its documented local validation only. It does not by itself authorize authentication, use of credentials, live service access, network requests with external effects, publishing, deployment, release, pushing, destructive cleanup, or changes outside the repository. Perform such an action only when the current user request or existing repository policy explicitly authorizes that specific class of action. Keep credentials private. Never interpret an authorization as unlimited retries: apply the retry and resource limits below. When approval is required, pause only that action, record the exact approval needed, and continue independent work.
 
-- **Scope:** only changes required to implement the accepted spec and its tickets, plus tests and docs necessary to validate and explain those changes.
-- **Filesystem boundary:** modify files inside the repository. Put temporary notes, logs, and scratch artifacts in `/tmp`. Use temporary Git worktrees under `/tmp` (or inside the repository's designated worktree directory, if configured). Do not modify other paths.
-- **Preservation:** preserve pre-existing user changes. Keep each implementation isolated in its own worktree/branch; never overwrite unrelated work.
-- **External effects:** use only the issue tracker and repository hosting configured for this repository, and only the actions required by its documented ticket/PR workflow. Do not publish, deploy, release, or alter credentials.
-- **Execution:** complete every ticket whose dependencies and evidence permit completion. Continue through independent tickets when another ticket is blocked. Close/resolve only tickets whose acceptance criteria are verified.
-- **Parallelism and models:** use configured implementer/oracle models and concurrency limits. If absent, use the available default implementer model, a modest safe concurrency, and an available independent oracle for difficult decisions; don't assume model names or resource-priority tools exist.
-- **Stopping:** do not stop the overall run for a local blocker. Keep a ticket open when it cannot be completed truthfully or safely; record the exact blocker and continue the remaining frontier. Stop only when there is no useful in-scope work left, or a hard environment/policy boundary prevents all further progress.
+Defaults:
 
-The policy is a durable repository configuration. Keep it concise, editable, and specific to the repo. If a necessary policy value is unspecified, apply the conservative defaults above and record the assumption; do not suspend implementation over minor choices.
+- **Scope:** accepted spec/tickets, and necessary tests and documentation.
+- **Filesystem:** modify repository files and run-created worktrees only. Put run ledger, logs, and scratch artifacts in a unique directory under `/tmp`. Preserve pre-existing user changes; inspect status before branch/worktree operations.
+- **External effects:** only explicitly authorized actions, using the repository's documented workflow. Never alter credentials or publish/deploy/release without specific authorization.
+- **Progress:** implement every actionable ticket whose dependencies and evidence permit completion; continue independent work past local blockers. A blocked ticket remains open with evidence.
+- **Parallelism and roles:** use a configured `worker` for ticket implementation and a subagent named `delegate` for non-implementation tasks such as research, diagnosis, or independent review. Use an oracle for consequential design/diagnosis decisions when available. Obey configured agent/model and concurrency limits; otherwise use at most two concurrent implementation tickets. If the needed role is unavailable, proceed directly when appropriate or record the blocker—never assume a generic default agent or invent model names.
+- **Retries/resources:** for a retryable operation, make at most three attempts with bounded backoff, unless repository policy specifies a stricter limit. Do not retry authorization, credential, or permanent failures automatically. Keep at most two implementation workers active; avoid unbounded jobs or output. If a resource limit or environment constraint prevents progress, record it and continue elsewhere.
+- **Stopping:** stop when no useful in-scope work remains or a hard boundary blocks all progress. Do not stop the whole run for a ticket-local blocker.
 
-## 2. Build the ticket frontier
+## 2. Create a resumable run ledger
 
-Read the full spec and all associated tickets. Understand acceptance criteria and dependencies before dispatching work. If the issue tracker lacks a complete ticket graph, use the repo's configured ticket workflow to identify the actionable work; do not invent extra tickets or broaden the spec.
+Create `/tmp/automate-spec-<repo>-<run-id>/run.md` (choose a unique, filesystem-safe repository name and run ID). Keep it concise and update it after dispatch, completion/blocking, integration, and any interruption. It is the run's recovery record, not a substitute for repository tickets.
 
-Create or reuse the configured integration branch without disturbing existing work. Identify all tickets whose blockers are resolved. Dispatch independent ready tickets concurrently, respecting the run policy and available capacity. Each implementer works in an isolated worktree based on the current integration branch and invokes the `tdd` skill to implement its ticket test-first, as required by `implement-spec`. Each reports tests, changes, and unresolved concerns.
+Record:
 
-Use context pointers (ticket/spec/research references) in agent handoffs. Keep handoffs bounded and avoid repeating source material already available to the implementer.
+- repository path, starting branch/commit, integration branch, policy source, and authorized external-action classes;
+- each ticket's status (`ready`, `active`, `integrated`, `blocked`, or `resolved`), dependencies, worker/worktree/branch, latest verified commit, acceptance evidence, validation commands/results, blocker, and next action;
+- run-level validation and review results, plus worktrees created by this run.
 
-## 3. Resolve problems without stalling
+Before resuming after interruption, read the ledger, inspect actual Git/worktree and ticket state, and reconcile discrepancies from current evidence. Never assume a worker or command completed merely because the ledger says it was started. Completion criterion: the ledger agrees with the repository's observable state and names the next actionable work.
 
-For each error, ambiguity, conflict, or failed validation:
+## 3. Build the ticket frontier
 
-1. Capture the exact symptom and inspect relevant repo guidance, code, history, tests, and tool output.
-2. Try the smallest in-scope repair or evidence-gathering step. Use a bounded oracle consultation for difficult diagnosis or design choices; seek a second oracle only if the first cannot resolve it.
-3. Choose the most conservative option supported by repo evidence and the accepted spec. Preserve existing behavior where intent is unclear. Do not invent user facts, silently weaken acceptance criteria, or introduce unrelated work.
-4. Retry validation and continue all independent tickets.
-5. If the ticket remains blocked, leave it unclosed and write a concise blocker record with what was tried, evidence, and the smallest next action needed. Then proceed with the rest of the frontier.
+Read the full spec and all associated tickets. Capture each ticket's acceptance criteria and dependencies in the ledger. A ticket is independently closable when its own criteria can be implemented and verified without depending on unresolved work; shared foundations may still impose dependencies. Follow explicit dependencies. If dependencies are missing, infer only clear relationships from acceptance criteria and record the inference. If the graph is cyclic or materially ambiguous, identify the smallest prerequisite slice supported by evidence; otherwise mark affected tickets blocked and continue elsewhere. Do not invent scope or tickets.
 
-A blocker is local to its ticket unless evidence shows it invalidates other tickets. Re-evaluate the frontier after each merge or blocker update. Never report partial implementation as full completion.
+Inspect Git status and existing branches/worktrees before creating or reusing an integration branch. Preserve existing work. Reuse a branch only when its purpose and state are clear; otherwise use the integration procedure in `implement-spec` and record the choice. Dispatch independent ready tickets concurrently within the limit, using a `worker` for each implementation ticket. Give each worker a bounded ticket, acceptance criteria, relevant context pointers, and an isolated worktree based on the current integration branch. Use a subagent named `delegate` for bounded non-implementation work when delegation is authorized and useful; do not assign implementation to a delegate subagent as a substitute for a worker. Require test-first implementation as specified by `implement-spec` and a report of changes, exact checks run/results, commit, and unresolved concerns.
 
-## 4. Integrate and validate continuously
+## 4. Resolve problems without stalling
 
-When an implementer finishes, inspect its report and changes. Verify its worktree is based on the latest integration branch, merge the integration tip into the work branch if needed, then review and merge the completed work into the integration branch. Resolve merge conflicts conservatively using the spec, repository conventions, and oracle support; rerun relevant tests after every merge.
+For each failure, ambiguity, conflict, or failed validation:
 
-After each merge, start newly unblocked tickets. Avoid parallel work on overlapping files unless the integration strategy is clear. If an implementer fails or becomes unavailable, recover its work and reassign only the remaining work; don't restart completed tickets without cause.
+1. Record the exact symptom and inspect relevant instructions, code, history, tests, and output.
+2. Try a small in-scope repair or evidence-gathering step. For difficult design/diagnosis, consult one independent oracle; seek another only if the first cannot resolve it within the retry/resource limits. Use a `delegate subagent` for bounded research or review tasks, not implementation.
+3. Treat oracle output as advice, not evidence or authorization. Verify claims against repository/source/test evidence. The agent remains responsible for policy and permission checks.
+4. Choose the most conservative option supported by the accepted spec and repository evidence. Preserve existing behavior when intent is unclear; never weaken acceptance criteria to make a check pass.
+5. Retry validation within the stated limits and continue independent tickets.
+6. If unresolved, leave the ticket open and record evidence, attempts, and the smallest next action. Continue the frontier.
 
-## 5. Close out
+## 5. Integrate and validate continuously
 
-When no ready tickets remain, perform the configured full validation and code review on the integration branch. Fix in-scope findings and rerun validation. Resolve only tickets whose acceptance criteria are verified, using the configured issue-tracker workflow. Leave genuinely blocked tickets open with precise evidence-based notes.
+When an implementer finishes, inspect its report, Git diff, and worktree state. Confirm the work is based on the latest integration branch; follow `implement-spec` to update, review, and merge it. Resolve conflicts conservatively using the spec and repository conventions; use oracle advice where helpful, but verify the result. Run relevant checks after each merge and record exact commands and outcomes. Then update the ledger and dispatch newly unblocked tickets. Avoid parallel work on overlapping files unless the integration plan is explicit. If a worker fails or becomes unavailable, inspect and preserve its work; reassign only unfinished work.
 
-Clean up only worktrees created by this run, and only after preserving useful logs/results in `/tmp` or the repo. Report the integration branch, completed and resolved tickets, validation, and any remaining blocked tickets. State explicitly that the spec is fully complete only if every ticket and acceptance criterion is verified.
+Use the repository's documented validation and review workflow. If none exists, run the package scripts or documented project checks discoverable from the repository, then perform a focused diff review and an independent review when available. Record unavailable or failing checks accurately; do not claim validation passed. Do not change tests or policy merely to conceal a failure.
+
+## 6. Close out
+
+When no ready tickets remain, perform the configured full validation and code review on the integration branch. Fix in-scope findings, rerun affected validation, and update the ledger. Resolve tickets only when every acceptance criterion has recorded verification evidence, following the configured tracker workflow and the authorization boundary. A local commit is not the same as a push or tracker resolution; perform those only when specifically authorized.
+
+Clean up only worktrees created by this run, after confirming their useful changes/results are preserved and following the filesystem and authorization boundaries. Keep the ledger and useful logs in its `/tmp` run directory. Report the integration branch and commit, tickets integrated/resolved/blocked, exact validation and review results, remaining risks, and any action awaiting approval. State that the spec is complete only when every ticket and acceptance criterion is verified and the configured resolution workflow is complete.
